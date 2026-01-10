@@ -1,6 +1,6 @@
 # Archiva Web Application
 
-Python web application running on Alpine Linux.
+Python web application emails archive running on Alpine Linux.
 
 ## Setup
 
@@ -20,5 +20,5 @@ Python web application running on Alpine Linux.
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.12+
 - See `requirements.txt` for dependencies
