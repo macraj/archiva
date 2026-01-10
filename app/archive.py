@@ -4,7 +4,7 @@ from email.header import decode_header
 from email.utils import parsedate_to_datetime
 import json
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, Optional
 import logging
 
 from sqlalchemy.orm import Session
@@ -226,7 +226,7 @@ def sync_account(account_id: int) -> Dict[str, Any]:
     finally:
         db.close()
 
-def sync_all_enabled_accounts() -> List[Dict[str, Any]]:
+def sync_all_enabled_accounts() -> Dict[str, Any]:
     """Synchronizuj wszystkie włączone konta"""
     db = SessionLocal()
     try:
@@ -247,6 +247,11 @@ def sync_all_enabled_accounts() -> List[Dict[str, Any]]:
                     'error': str(e)
                 })
         
-        return results
+        return {
+            'total': len(accounts),
+            'successful': sum(1 for r in results if r.get('success')),
+            'failed': sum(1 for r in results if not r.get('success')),
+            'results': results
+        }
     finally:
         db.close()

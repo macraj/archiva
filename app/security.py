@@ -1,8 +1,10 @@
+from passlib.context import CryptContext
 from cryptography.fernet import Fernet
 from itsdangerous import URLSafeSerializer
 
 from .config import CRED_KEY, SESSION_SECRET
 
+# INICJALIZACJA - to jest kluczowe!
 pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 fernet = Fernet(CRED_KEY.encode() if isinstance(CRED_KEY, str) else CRED_KEY)
 cookie = URLSafeSerializer(SESSION_SECRET)
@@ -28,5 +30,3 @@ def unsign_session(value: str) -> int | None:
         return int(data["user_id"])
     except Exception:
         return None
-
-

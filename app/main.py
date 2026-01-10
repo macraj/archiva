@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import imaplib
 import socket
+import threading
+from typing import Optional
 
 from fastapi import FastAPI, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -11,9 +13,10 @@ from pydantic import BaseModel, EmailStr
 
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func  # Dodaj ten import
 
 from .db import get_db, engine
-from .models import Base, User, MailAccount
+from .models import Base, User, MailAccount, ArchivedEmail  # Dodaj ArchivedEmail
 from .security import (
     hash_password,
     verify_password,
@@ -23,8 +26,7 @@ from .security import (
     unsign_session,
 )
 from .config import ALLOW_SIGNUP
-from .archive import sync_account, sync_all_enabled_accounts
-import threading
+from .archive import sync_account, sync_all_enabled_accounts  # Dodaj te importy
 
 Base.metadata.create_all(bind=engine)
 
@@ -80,7 +82,8 @@ def has_admin(db: Session) -> bool:
     return db.query(User).filter(User.role == "admin").first() is not None
 
 
-def get_current_user(request: Request, db: Session) -> User | None:
+def get_current_user(request: Request, db: Session):
+    """Pobierz aktualnego użytkownika (bez Depends)"""
     raw = request.cookies.get(SESSION_COOKIE)
     if not raw:
         return None
@@ -88,7 +91,6 @@ def get_current_user(request: Request, db: Session) -> User | None:
     if not uid:
         return None
     return db.query(User).filter(User.id == uid, User.is_active.is_(True)).first()
-
 
 def redirect_login():
     return RedirectResponse("/login", status_code=303)
@@ -535,57 +537,8 @@ def accounts_toggle(
     db.commit()
     return RedirectResponse("/accounts", status_code=303)
 
-@app.post("/api/sync/{account_id}")
-def api_sync_account(
-    account_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Ręczna synchronizacja konta"""
-    # Sprawdź uprawnienia
-    account = db.query(MailAccount).filter(
-        MailAccount.id == account_id,
-        MailAccount.user_id == current_user.id
-    ).first()
-    
-    if not account:
-        return {"error": "Account not found"}
-    
-    # Uruchom w tle
-    thread = threading.Thread(
-        target=sync_account,
-        args=(account_id,)
-    )
-    thread.start()
-    
-    return {"status": "started", "account_id": account_id}
 
-@app.get("/api/emails")
-def api_list_emails(
-    skip: int = 0,
-    limit: int = 50,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Lista zarchiwizowanych maili"""
-    emails = db.query(ArchivedEmail).join(MailAccount).filter(
-        MailAccount.user_id == current_user.id
-    ).order_by(ArchivedEmail.date.desc()).offset(skip).limit(limit).all()
-    
-    return {
-        "emails": [
-            {
-                "id": e.id,
-                "subject": e.subject,
-                "sender": e.sender,
-                "date": e.date.isoformat(),
-                "has_attachments": e.has_attachments
-            }
-            for e in emails
-        ]
-    }
-    # Dodaj do main.py po innych endpointach
-
+# --- Email archive routes ---
 @app.get("/emails", response_class=HTMLResponse)
 def emails_list(
     request: Request,
@@ -596,13 +549,19 @@ def emails_list(
     db: Session = Depends(get_db)
 ):
     """Lista zarchiwizowanych maili"""
-    current_user = get_current_user(request, db)
-    if not current_user:
+    if not has_admin(db):
+        return RedirectResponse("/setup", status_code=303)
+
+    u = get_current_user(request, db)
+    if not u:
         return redirect_login()
+    
+    if u.must_change_password:
+        return RedirectResponse("/account/change-password", status_code=303)
     
     # Zapytanie bazowe
     query = db.query(ArchivedEmail).join(MailAccount).filter(
-        MailAccount.user_id == current_user.id
+        MailAccount.user_id == u.id
     )
     
     # Filtry
@@ -627,48 +586,54 @@ def emails_list(
     stats = {
         "total_emails": db.query(func.count(ArchivedEmail.id))
                          .join(MailAccount)
-                         .filter(MailAccount.user_id == current_user.id)
+                         .filter(MailAccount.user_id == u.id)
                          .scalar() or 0,
         "active_accounts": db.query(func.count(MailAccount.id))
-                            .filter(MailAccount.user_id == current_user.id, 
+                            .filter(MailAccount.user_id == u.id, 
                                     MailAccount.enabled == True)
                             .scalar() or 0,
         "total_accounts": db.query(func.count(MailAccount.id))
-                           .filter(MailAccount.user_id == current_user.id)
+                           .filter(MailAccount.user_id == u.id)
                            .scalar() or 0,
         "with_attachments": db.query(func.count(ArchivedEmail.id))
                              .join(MailAccount)
-                             .filter(MailAccount.user_id == current_user.id,
+                             .filter(MailAccount.user_id == u.id,
                                      ArchivedEmail.has_attachments == True)
                              .scalar() or 0,
         "last_sync": db.query(func.max(MailAccount.last_sync_at))
-                       .filter(MailAccount.user_id == current_user.id)
+                       .filter(MailAccount.user_id == u.id)
                        .scalar()
     }
     
     # Lista kont do filtrowania
     accounts_list = db.query(MailAccount).filter(
-        MailAccount.user_id == current_user.id
+        MailAccount.user_id == u.id
     ).all()
+    
+    selected_account_name = None
+    if account_id:
+        for acc in accounts_list:
+            if acc.id == account_id:
+                selected_account_name = acc.name
+                break
     
     return templates.TemplateResponse(
         "emails.html",
         {
             "request": request,
-            "user": current_user,
+            "user": u,
             "emails": emails,
             "accounts": accounts_list,
             "selected_account_id": account_id,
-            "selected_account_name": next(
-                (a.name for a in accounts_list if a.id == account_id), ""
-            ) if account_id else None,
+            "selected_account_name": selected_account_name,
             "query": q,
             "page": page,
             "per_page": per_page,
-            "total_pages": (total + per_page - 1) // per_page,
+            "total_pages": (total + per_page - 1) // per_page if per_page > 0 else 1,
             "stats": stats
         }
     )
+
 
 @app.get("/emails/{email_id}", response_class=HTMLResponse)
 def email_detail(
@@ -677,13 +642,19 @@ def email_detail(
     db: Session = Depends(get_db)
 ):
     """Szczegóły maila"""
-    current_user = get_current_user(request, db)
-    if not current_user:
+    if not has_admin(db):
+        return RedirectResponse("/setup", status_code=303)
+
+    u = get_current_user(request, db)
+    if not u:
         return redirect_login()
+    
+    if u.must_change_password:
+        return RedirectResponse("/account/change-password", status_code=303)
     
     email = db.query(ArchivedEmail).join(MailAccount).filter(
         ArchivedEmail.id == email_id,
-        MailAccount.user_id == current_user.id
+        MailAccount.user_id == u.id
     ).first()
     
     if not email:
@@ -693,7 +664,312 @@ def email_detail(
         "email_detail.html",
         {
             "request": request,
-            "user": current_user,
+            "user": u,
             "email": email
         }
     )
+
+
+## ========== API ENDPOINTS ==========
+# Dodaj TUŻ przed końcem pliku, ale PRZED jeśli __name__ == "__main__"
+
+@app.post("/api/sync/{account_id}")
+async def api_sync_account(
+    account_id: int,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Ręczna synchronizacja konta (POST)"""
+    # Sprawdź czy admin istnieje
+    if not has_admin(db):
+        return {"error": "No admin setup"}
+    
+    # Pobierz użytkownika z sesji
+    raw = request.cookies.get(SESSION_COOKIE)
+    if not raw:
+        return {"error": "Not authenticated"}
+    
+    uid = unsign_session(raw)
+    if not uid:
+        return {"error": "Invalid session"}
+    
+    u = db.query(User).filter(User.id == uid, User.is_active.is_(True)).first()
+    if not u:
+        return {"error": "User not found"}
+    
+    # Sprawdź uprawnienia
+    account = db.query(MailAccount).filter(
+        MailAccount.id == account_id,
+        MailAccount.user_id == u.id
+    ).first()
+    
+    if not account:
+        return {"error": "Account not found"}
+    
+    if not account.enabled:
+        return {"error": "Account is disabled"}
+    
+    # Uruchom w tle
+    def sync_task():
+        from .archive import EmailArchiver
+        from .db import SessionLocal as LocalSession
+        
+        db_sync = LocalSession()
+        try:
+            archiver = EmailArchiver(account_id, db_sync)
+            archiver.fetch_emails(since_days=30)
+        finally:
+            db_sync.close()
+    
+    thread = threading.Thread(target=sync_task)
+    thread.daemon = True
+    thread.start()
+    
+    return {"status": "started", "account_id": account_id, "account_name": account.name}
+
+
+@app.post("/api/sync/all")
+async def api_sync_all(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Synchronizuj wszystkie włączone konta (POST)"""
+    # Sprawdź czy admin istnieje
+    if not has_admin(db):
+        return {"error": "No admin setup"}
+    
+    # Pobierz użytkownika z sesji
+    raw = request.cookies.get(SESSION_COOKIE)
+    if not raw:
+        return {"error": "Not authenticated"}
+    
+    uid = unsign_session(raw)
+    if not uid:
+        return {"error": "Invalid session"}
+    
+    u = db.query(User).filter(User.id == uid, User.is_active.is_(True)).first()
+    if not u:
+        return {"error": "User not found"}
+    
+    # Pobierz włączone konta użytkownika
+    accounts = db.query(MailAccount).filter(
+        MailAccount.user_id == u.id,
+        MailAccount.enabled == True
+    ).all()
+    
+    if not accounts:
+        return {"status": "no_enabled_accounts", "count": 0}
+    
+    # Uruchom w tle
+    def sync_all_task():
+        from .archive import sync_all_enabled_accounts
+        sync_all_enabled_accounts()
+    
+    thread = threading.Thread(target=sync_all_task)
+    thread.daemon = True
+    thread.start()
+    
+    return {
+        "status": "started", 
+        "count": len(accounts),
+        "accounts": [{"id": a.id, "name": a.name} for a in accounts]
+    }
+
+
+# ========== SIMPLE GET ENDPOINTS (dla linków) ==========
+@app.get("/sync/all")
+async def simple_sync_all(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Prosty endpoint GET do synchronizacji wszystkich kont"""
+    # Sprawdź czy admin istnieje
+    if not has_admin(db):
+        return RedirectResponse("/setup", status_code=303)
+    
+    # Pobierz użytkownika z sesji
+    raw = request.cookies.get(SESSION_COOKIE)
+    if not raw:
+        return RedirectResponse("/login", status_code=303)
+    
+    uid = unsign_session(raw)
+    if not uid:
+        return RedirectResponse("/login", status_code=303)
+    
+    u = db.query(User).filter(User.id == uid, User.is_active.is_(True)).first()
+    if not u:
+        return RedirectResponse("/login", status_code=303)
+    
+    # Pobierz włączone konta użytkownika
+    accounts = db.query(MailAccount).filter(
+        MailAccount.user_id == u.id,
+        MailAccount.enabled == True
+    ).all()
+    
+    if not accounts:
+        return RedirectResponse("/accounts?error=no_enabled_accounts", status_code=303)
+    
+    # Uruchom w tle
+    def sync_all_task():
+        from .archive import sync_all_enabled_accounts
+        sync_all_enabled_accounts()
+    
+    thread = threading.Thread(target=sync_all_task)
+    thread.daemon = True
+    thread.start()
+    
+    return RedirectResponse(f"/accounts?sync_started=true&count={len(accounts)}", status_code=303)
+
+
+@app.get("/sync/{account_id}")
+async def simple_sync_account(
+    request: Request,
+    account_id: int,
+    db: Session = Depends(get_db)
+):
+    """Prosty endpoint GET do synchronizacji pojedynczego konta"""
+    # Sprawdź czy admin istnieje
+    if not has_admin(db):
+        return RedirectResponse("/setup", status_code=303)
+    
+    # Pobierz użytkownika z sesji
+    raw = request.cookies.get(SESSION_COOKIE)
+    if not raw:
+        return RedirectResponse("/login", status_code=303)
+    
+    uid = unsign_session(raw)
+    if not uid:
+        return RedirectResponse("/login", status_code=303)
+    
+    u = db.query(User).filter(User.id == uid, User.is_active.is_(True)).first()
+    if not u:
+        return RedirectResponse("/login", status_code=303)
+    
+    # Sprawdź uprawnienia
+    account = db.query(MailAccount).filter(
+        MailAccount.id == account_id,
+        MailAccount.user_id == u.id
+    ).first()
+    
+    if not account:
+        return RedirectResponse("/accounts?error=account_not_found", status_code=303)
+    
+    if not account.enabled:
+        return RedirectResponse("/accounts?error=account_disabled", status_code=303)
+    
+    # Uruchom w tle
+    def sync_task():
+        from .archive import EmailArchiver
+        from .db import SessionLocal as LocalSession
+        
+        db_sync = LocalSession()
+        try:
+            archiver = EmailArchiver(account_id, db_sync)
+            archiver.fetch_emails(since_days=30)
+        finally:
+            db_sync.close()
+    
+    thread = threading.Thread(target=sync_task)
+    thread.daemon = True
+    thread.start()
+    
+    return RedirectResponse(f"/accounts?sync_started=true&account={account.name}", status_code=303)
+
+# --- Simple sync actions (POST forms) ---
+@app.post("/sync-all-action")
+async def sync_all_action(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Prosta akcja synchronizacji wszystkich kont (dla formularza)"""
+    # Sprawdź czy admin istnieje
+    if not has_admin(db):
+        return RedirectResponse("/setup", status_code=303)
+    
+    # Pobierz użytkownika z sesji
+    raw = request.cookies.get(SESSION_COOKIE)
+    if not raw:
+        return RedirectResponse("/login", status_code=303)
+    
+    uid = unsign_session(raw)
+    if not uid:
+        return RedirectResponse("/login", status_code=303)
+    
+    u = db.query(User).filter(User.id == uid, User.is_active.is_(True)).first()
+    if not u:
+        return RedirectResponse("/login", status_code=303)
+    
+    # Pobierz włączone konta użytkownika
+    accounts = db.query(MailAccount).filter(
+        MailAccount.user_id == u.id,
+        MailAccount.enabled == True
+    ).all()
+    
+    if not accounts:
+        return RedirectResponse("/accounts?error=no_enabled_accounts", status_code=303)
+    
+    # Uruchom w tle
+    def sync_all_task():
+        from .archive import sync_all_enabled_accounts
+        sync_all_enabled_accounts()
+    
+    thread = threading.Thread(target=sync_all_task)
+    thread.daemon = True
+    thread.start()
+    
+    return RedirectResponse("/accounts?sync_started=true", status_code=303)
+
+
+@app.post("/sync-account-action")
+async def sync_account_action(
+    request: Request,
+    account_id: int = Form(...),  # Pobierz z formularza
+    db: Session = Depends(get_db)
+):
+    """Prosta akcja synchronizacji pojedynczego konta (dla formularza)"""
+    # Sprawdź czy admin istnieje
+    if not has_admin(db):
+        return RedirectResponse("/setup", status_code=303)
+    
+    # Pobierz użytkownika z sesji
+    raw = request.cookies.get(SESSION_COOKIE)
+    if not raw:
+        return RedirectResponse("/login", status_code=303)
+    
+    uid = unsign_session(raw)
+    if not uid:
+        return RedirectResponse("/login", status_code=303)
+    
+    u = db.query(User).filter(User.id == uid, User.is_active.is_(True)).first()
+    if not u:
+        return RedirectResponse("/login", status_code=303)
+    
+    # Sprawdź uprawnienia
+    account = db.query(MailAccount).filter(
+        MailAccount.id == account_id,
+        MailAccount.user_id == u.id
+    ).first()
+    
+    if not account:
+        return RedirectResponse("/accounts?error=account_not_found", status_code=303)
+    
+    if not account.enabled:
+        return RedirectResponse("/accounts?error=account_disabled", status_code=303)
+    
+    # Uruchom w tle
+    def sync_task():
+        from .archive import EmailArchiver
+        from .db import SessionLocal as LocalSession
+        
+        db_sync = LocalSession()
+        try:
+            archiver = EmailArchiver(account_id, db_sync)
+            archiver.fetch_emails(since_days=30)
+        finally:
+            db_sync.close()
+    
+    thread = threading.Thread(target=sync_task)
+    thread.daemon = True
+    thread.start()
+    
+    return RedirectResponse("/accounts?sync_started=true", status_code=303)

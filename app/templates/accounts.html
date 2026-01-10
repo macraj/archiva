@@ -3,18 +3,21 @@
 {% block title %}Archiva · Mail accounts{% endblock %}
 {% block subtitle %}{{ user.email }}{% endblock %}
 
-{% block nav %}
-  {% if user.role == "admin" %}
-    <a href="/admin/users">Admin</a>
-  {% endif %}
-  <a href="/account/change-password">Change password</a>
-  <form action="/logout" method="post" style="margin:0;">
-    <button type="submit">Logout</button>
-  </form>
-{% endblock %}
-
 {% block content %}
   <h1>Mail accounts</h1>
+
+  <!-- Komunikaty -->
+  {% if request.query_params.get('sync_started') == 'true' %}
+    <div class="note" style="margin-bottom: 20px;">
+      ✅ Synchronization started. This may take a few minutes.
+    </div>
+  {% endif %}
+  
+  {% if request.query_params.get('error') == 'no_enabled_accounts' %}
+    <div class="error" style="margin-bottom: 20px;">
+      ❌ No enabled accounts to sync. Enable at least one account first.
+    </div>
+  {% endif %}
 
   <h2 style="margin-top:16px;">Add mail account</h2>
   <p class="muted" style="max-width: 80ch;">
@@ -49,318 +52,100 @@
 
     <button type="submit" style="margin-top:14px;">Add (disabled)</button>
   </form>
-  <!-- Dodaj tuż przed <h2 style="margin-top:24px;">Your accounts</h2> -->
 
-<!-- Statystyki archiwizacji -->
-<div style="margin: 24px 0; padding: 16px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid var(--border);">
-  <h3 style="margin-top:0;">Archiving stats</h3>
-  
-  {% set total_emails = accounts|sum(attribute='emails_count') %}
-  {% set active_accounts = accounts|selectattr('enabled')|list|length %}
-  
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px;">
-    <div>
-      <div class="muted" style="font-size: 0.9em;">Total archived</div>
-      <div style="font-size: 1.8em; font-weight: bold;">{{ total_emails }}</div>
-    </div>
+  <!-- Statystyki archiwizacji -->
+  <div style="margin: 24px 0; padding: 16px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid var(--border);">
+    <h3 style="margin-top:0;">Archiving stats</h3>
     
-    <div>
-      <div class="muted" style="font-size: 0.9em;">Accounts</div>
-      <div style="font-size: 1.8em; font-weight: bold;">
-        {{ active_accounts }}/{{ accounts|length }} active
-      </div>
-    </div>
+    {% set total_emails = accounts|sum(attribute='emails_count') %}
+    {% set active_accounts = accounts|selectattr('enabled')|list|length %}
     
-    <div>
-      <div class="muted" style="font-size: 0.9em;">Last sync</div>
-      <div style="font-size: 1.1em;">
-        {% set last_sync = accounts|selectattr('last_sync_at')|map(attribute='last_sync_at')|list|sort(reverse=true)|first %}
-        {% if last_sync %}
-          {{ last_sync.strftime('%Y-%m-%d %H:%M') }}
-        {% else %}
-          Never
-        {% endif %}
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px;">
+      <div>
+        <div class="muted" style="font-size: 0.9em;">Total archived</div>
+        <div style="font-size: 1.8em; font-weight: bold;">{{ total_emails }}</div>
       </div>
-    </div>
-    
-    <div>
-      <div class="muted" style="font-size: 0.9em;">Quick actions</div>
-      <div style="display: flex; gap: 8px; margin-top: 4px;">
-        {% if active_accounts > 0 %}
-          <form method="post" action="/api/sync/all" style="margin:0;">
-            <button type="submit" class="ok" style="padding: 6px 12px; font-size: 0.9em;">
-              Sync all
-            </button>
-          </form>
-        {% endif %}
-        <a href="/emails" style="text-decoration: none;">
-          <button style="padding: 6px 12px; font-size: 0.9em;">View emails</button>
-        </a>
+      
+      <div>
+        <div class="muted" style="font-size: 0.9em;">Accounts</div>
+        <div style="font-size: 1.8em; font-weight: bold;">
+          {{ active_accounts }}/{{ accounts|length }} active
+        </div>
       </div>
-    </div>
-  </div>
-  
-  <!-- Indywidualne statystyki kont -->
-  {% if active_accounts > 0 %}
-    <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-      <div class="muted" style="font-size: 0.9em; margin-bottom: 8px;">Per account:</div>
-      <div style="display: flex; flex-wrap: wrap; gap: 12px;">
-        {% for acc in accounts if acc.enabled %}
-          <div style="
-            border: 1px solid var(--border); 
-            border-radius: 8px; 
-            padding: 10px; 
-            min-width: 160px;
-            {% if acc.last_sync_status == 'success' %}border-color: rgba(46,229,157,0.3){% endif %}
-            {% if acc.last_sync_status == 'failed' %}border-color: rgba(255,92,119,0.3){% endif %}
-          ">
-            <div style="font-weight: 500; margin-bottom: 4px;">{{ acc.name }}</div>
-            <div style="display: flex; justify-content: space-between; font-size: 0.9em;">
-              <span class="muted">Emails:</span>
-              <span>{{ acc.emails_count }}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 0.9em;">
-              <span class="muted">Last sync:</span>
-              <span>
-                {% if acc.last_sync_at %}
-                  {{ acc.last_sync_at.strftime('%m-%d') }}
-                {% else %}
-                  –
-                {% endif %}
-              </span>
-            </div>
-            <div style="margin-top: 8px;">
-              <form method="post" action="/api/sync/{{ acc.id }}" style="margin:0;">
-                <button type="submit" style="padding: 4px 8px; width: 100%; font-size: 0.85em;">
-                  Sync now
-                </button>
-              </form>
-            </div>
-          </div>
-        {% endfor %}
+      
+      <div>
+        <div class="muted" style="font-size: 0.9em;">Last sync</div>
+        <div style="font-size: 1.1em;">
+          {% set last_sync = accounts|selectattr('last_sync_at')|map(attribute='last_sync_at')|list|sort(reverse=true)|first %}
+          {% if last_sync %}
+            {{ last_sync.strftime('%Y-%m-%d %H:%M') }}
+          {% else %}
+            Never
+          {% endif %}
+        </div>
       </div>
-    </div>
-  {% endif %}
-</div>
-  <h2 style="margin-top:24px;">Your accounts</h2>
-
-  {% if accounts and accounts|length > 0 %}
-    <table>
-      <thead>
-        <tr>
-          <th style="width:70px;">ID</th>
-          <th style="width:170px;">Name</th>
-          <th>IMAP</th>
-          <th style="width:100px;">Enabled</th>
-          <th style="width:170px;">Test</th>
-          <th style="width:260px;">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for a in accounts %}
-        <tr>
-          <td>{{ a.id }}</td>
-          <td>{{ a.name }}</td>
-
-          <td>
-            {% set u = a.imap_user or "" %}
-            {% if "@" in u %}
-              {% set parts = u.split("@", 1) %}
-              <div><strong>{{ parts[0][:2] }}***@{{ parts[1] }}</strong></div>
-            {% else %}
-              <div><strong>{{ u[:2] }}***</strong></div>
-            {% endif %}
-            <div class="muted">{{ a.imap_host }}:{{ a.imap_port }}</div>
-          </td>
-
-          <td>
-            {% if a.enabled %}
-              <span class="badge badge-ok">yes</span>
-            {% else %}
-              <span class="badge badge-unk">no</span>
-            {% endif %}
-          </td>
-
-          <td>
-            {% if a.last_test_ok is none %}
-              <span class="badge badge-unk">unknown</span>
-            {% elif a.last_test_ok %}
-              <span class="badge badge-ok">ok</span>
-            {% else %}
-              <span class="badge badge-fail">fail</span>
-              {% if a.last_test_error %}
-                <div class="muted" style="margin-top:6px;">{{ a.last_test_error }}</div>
-              {% endif %}
-            {% endif %}
-          </td>
-
-          <td class="actions">
-            <form method="post" action="/accounts/toggle">
-              <input type="hidden" name="account_id" value="{{ a.id }}" />
-              {% if a.enabled %}
-                <button class="warn" type="submit">Disable</button>
-              {% else %}
-                <button class="ok" type="submit">Enable (test)</button>
-              {% endif %}
+      
+      <div>
+        <div class="muted" style="font-size: 0.9em;">Quick actions</div>
+        <div style="display: flex; gap: 8px; margin-top: 4px;">
+          {% if active_accounts > 0 %}
+            <form method="post" action="/sync-all-action" style="margin:0;">
+              <button type="submit" class="ok" style="padding: 6px 12px; font-size: 0.9em;">
+                Sync all
+              </button>
             </form>
-
-            <form method="post" action="/accounts/delete" onsubmit="return confirm('Delete account {{ a.name }}?');">
-              <input type="hidden" name="account_id" value="{{ a.id }}" />
-              <button class="danger" type="submit">Delete</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p class="muted">No accounts yet.</p>
-  {% endif %}
-{% endblock %}
-{% extends "base.html" %}
-
-{% block title %}Archiva · Mail accounts{% endblock %}
-{% block subtitle %}{{ user.email }}{% endblock %}
-
-{% block nav %}
-  {% if user.role == "admin" %}
-    <a href="/admin/users">Admin</a>
-  {% endif %}
-  <a href="/account/change-password">Change password</a>
-  <form action="/logout" method="post" style="margin:0;">
-    <button type="submit">Logout</button>
-  </form>
-{% endblock %}
-
-{% block content %}
-  <h1>Mail accounts</h1>
-
-  <h2 style="margin-top:16px;">Add mail account</h2>
-  <p class="muted" style="max-width: 80ch;">
-    Konto zapisuje się od razu jako disabled. Test wykona się dopiero przy kliknięciu Enable.
-  </p>
-
-  <form method="post" action="/accounts/add">
-    <label>
-      Name
-      <input name="name" placeholder="Yahoo" required />
-    </label>
-
-    <label>
-      IMAP host
-      <input name="imap_host" placeholder="imap.mail.yahoo.com" required />
-    </label>
-
-    <label>
-      IMAP port
-      <input name="imap_port" type="number" value="993" required />
-    </label>
-
-    <label>
-      IMAP user/login
-      <input name="imap_user" placeholder="user@example.com" required />
-    </label>
-
-    <label>
-      IMAP app password
-      <input name="imap_password" type="password" placeholder="App password" required />
-    </label>
-
-    <button type="submit" style="margin-top:14px;">Add (disabled)</button>
-  </form>
-  <!-- Dodaj tuż przed <h2 style="margin-top:24px;">Your accounts</h2> -->
-
-<!-- Statystyki archiwizacji -->
-<div style="margin: 24px 0; padding: 16px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid var(--border);">
-  <h3 style="margin-top:0;">Archiving stats</h3>
-  
-  {% set total_emails = accounts|sum(attribute='emails_count') %}
-  {% set active_accounts = accounts|selectattr('enabled')|list|length %}
-  
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px;">
-    <div>
-      <div class="muted" style="font-size: 0.9em;">Total archived</div>
-      <div style="font-size: 1.8em; font-weight: bold;">{{ total_emails }}</div>
-    </div>
-    
-    <div>
-      <div class="muted" style="font-size: 0.9em;">Accounts</div>
-      <div style="font-size: 1.8em; font-weight: bold;">
-        {{ active_accounts }}/{{ accounts|length }} active
+          {% endif %}
+          <a href="/emails" style="text-decoration: none;">
+            <button style="padding: 6px 12px; font-size: 0.9em;">View emails</button>
+          </a>
+        </div>
       </div>
     </div>
     
-    <div>
-      <div class="muted" style="font-size: 0.9em;">Last sync</div>
-      <div style="font-size: 1.1em;">
-        {% set last_sync = accounts|selectattr('last_sync_at')|map(attribute='last_sync_at')|list|sort(reverse=true)|first %}
-        {% if last_sync %}
-          {{ last_sync.strftime('%Y-%m-%d %H:%M') }}
-        {% else %}
-          Never
-        {% endif %}
+    <!-- Indywidualne statystyki kont -->
+    {% if active_accounts > 0 %}
+      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+        <div class="muted" style="font-size: 0.9em; margin-bottom: 8px;">Per account:</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 12px;">
+          {% for acc in accounts if acc.enabled %}
+            <div style="
+              border: 1px solid var(--border); 
+              border-radius: 8px; 
+              padding: 10px; 
+              min-width: 160px;
+              {% if acc.last_sync_status == 'success' %}border-color: rgba(46,229,157,0.3){% endif %}
+              {% if acc.last_sync_status == 'failed' %}border-color: rgba(255,92,119,0.3){% endif %}
+            ">
+              <div style="font-weight: 500; margin-bottom: 4px;">{{ acc.name }}</div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.9em;">
+                <span class="muted">Emails:</span>
+                <span>{{ acc.emails_count }}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.9em;">
+                <span class="muted">Last sync:</span>
+                <span>
+                  {% if acc.last_sync_at %}
+                    {{ acc.last_sync_at.strftime('%m-%d') }}
+                  {% else %}
+                    –
+                  {% endif %}
+                </span>
+              </div>
+              <div style="margin-top: 8px;">
+                <form method="post" action="/sync-account-action" style="margin:0;">
+                  <input type="hidden" name="account_id" value="{{ acc.id }}">
+                  <button type="submit" style="padding: 4px 8px; width: 100%; font-size: 0.85em;">
+                    Sync now
+                  </button>
+                </form>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
       </div>
-    </div>
-    
-    <div>
-      <div class="muted" style="font-size: 0.9em;">Quick actions</div>
-      <div style="display: flex; gap: 8px; margin-top: 4px;">
-        {% if active_accounts > 0 %}
-          <form method="post" action="/api/sync/all" style="margin:0;">
-            <button type="submit" class="ok" style="padding: 6px 12px; font-size: 0.9em;">
-              Sync all
-            </button>
-          </form>
-        {% endif %}
-        <a href="/emails" style="text-decoration: none;">
-          <button style="padding: 6px 12px; font-size: 0.9em;">View emails</button>
-        </a>
-      </div>
-    </div>
+    {% endif %}
   </div>
-  
-  <!-- Indywidualne statystyki kont -->
-  {% if active_accounts > 0 %}
-    <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-      <div class="muted" style="font-size: 0.9em; margin-bottom: 8px;">Per account:</div>
-      <div style="display: flex; flex-wrap: wrap; gap: 12px;">
-        {% for acc in accounts if acc.enabled %}
-          <div style="
-            border: 1px solid var(--border); 
-            border-radius: 8px; 
-            padding: 10px; 
-            min-width: 160px;
-            {% if acc.last_sync_status == 'success' %}border-color: rgba(46,229,157,0.3){% endif %}
-            {% if acc.last_sync_status == 'failed' %}border-color: rgba(255,92,119,0.3){% endif %}
-          ">
-            <div style="font-weight: 500; margin-bottom: 4px;">{{ acc.name }}</div>
-            <div style="display: flex; justify-content: space-between; font-size: 0.9em;">
-              <span class="muted">Emails:</span>
-              <span>{{ acc.emails_count }}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 0.9em;">
-              <span class="muted">Last sync:</span>
-              <span>
-                {% if acc.last_sync_at %}
-                  {{ acc.last_sync_at.strftime('%m-%d') }}
-                {% else %}
-                  –
-                {% endif %}
-              </span>
-            </div>
-            <div style="margin-top: 8px;">
-              <form method="post" action="/api/sync/{{ acc.id }}" style="margin:0;">
-                <button type="submit" style="padding: 4px 8px; width: 100%; font-size: 0.85em;">
-                  Sync now
-                </button>
-              </form>
-            </div>
-          </div>
-        {% endfor %}
-      </div>
-    </div>
-  {% endif %}
-</div>
+
   <h2 style="margin-top:24px;">Your accounts</h2>
 
   {% if accounts and accounts|length > 0 %}
@@ -437,3 +222,28 @@
   {% endif %}
 {% endblock %}
 
+{% block head %}
+<script>
+// Prosty JavaScript do pokazania, że synchronizacja się rozpoczęła
+document.addEventListener('DOMContentLoaded', function() {
+  const forms = document.querySelectorAll('form[action="/sync-all-action"], form[action="/sync-account-action"]');
+  
+  forms.forEach(form => {
+    form.addEventListener('submit', function(e) {
+      const button = this.querySelector('button[type="submit"]');
+      if (button) {
+        const originalText = button.textContent;
+        button.disabled = true;
+        button.textContent = 'Syncing...';
+        
+        // Przywróć tekst po 5 sekundach (na wypadek błędu)
+        setTimeout(() => {
+          button.disabled = false;
+          button.textContent = originalText;
+        }, 5000);
+      }
+    });
+  });
+});
+</script>
+{% endblock %}
