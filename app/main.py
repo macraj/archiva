@@ -23,6 +23,8 @@ from .security import (
     unsign_session,
 )
 from .config import ALLOW_SIGNUP
+from .archive import sync_account, sync_all_enabled_accounts
+import threading
 
 Base.metadata.create_all(bind=engine)
 
@@ -533,3 +535,165 @@ def accounts_toggle(
     db.commit()
     return RedirectResponse("/accounts", status_code=303)
 
+@app.post("/api/sync/{account_id}")
+def api_sync_account(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Ręczna synchronizacja konta"""
+    # Sprawdź uprawnienia
+    account = db.query(MailAccount).filter(
+        MailAccount.id == account_id,
+        MailAccount.user_id == current_user.id
+    ).first()
+    
+    if not account:
+        return {"error": "Account not found"}
+    
+    # Uruchom w tle
+    thread = threading.Thread(
+        target=sync_account,
+        args=(account_id,)
+    )
+    thread.start()
+    
+    return {"status": "started", "account_id": account_id}
+
+@app.get("/api/emails")
+def api_list_emails(
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Lista zarchiwizowanych maili"""
+    emails = db.query(ArchivedEmail).join(MailAccount).filter(
+        MailAccount.user_id == current_user.id
+    ).order_by(ArchivedEmail.date.desc()).offset(skip).limit(limit).all()
+    
+    return {
+        "emails": [
+            {
+                "id": e.id,
+                "subject": e.subject,
+                "sender": e.sender,
+                "date": e.date.isoformat(),
+                "has_attachments": e.has_attachments
+            }
+            for e in emails
+        ]
+    }
+    # Dodaj do main.py po innych endpointach
+
+@app.get("/emails", response_class=HTMLResponse)
+def emails_list(
+    request: Request,
+    page: int = 1,
+    per_page: int = 20,
+    account_id: Optional[int] = None,
+    q: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Lista zarchiwizowanych maili"""
+    current_user = get_current_user(request, db)
+    if not current_user:
+        return redirect_login()
+    
+    # Zapytanie bazowe
+    query = db.query(ArchivedEmail).join(MailAccount).filter(
+        MailAccount.user_id == current_user.id
+    )
+    
+    # Filtry
+    if account_id:
+        query = query.filter(MailAccount.id == account_id)
+    
+    if q:
+        q_like = f"%{q}%"
+        query = query.filter(
+            (ArchivedEmail.subject.ilike(q_like)) |
+            (ArchivedEmail.sender.ilike(q_like)) |
+            (ArchivedEmail.body_text.ilike(q_like))
+        )
+    
+    # Paginacja
+    total = query.count()
+    emails = query.order_by(ArchivedEmail.date.desc()).offset(
+        (page - 1) * per_page
+    ).limit(per_page).all()
+    
+    # Statystyki
+    stats = {
+        "total_emails": db.query(func.count(ArchivedEmail.id))
+                         .join(MailAccount)
+                         .filter(MailAccount.user_id == current_user.id)
+                         .scalar() or 0,
+        "active_accounts": db.query(func.count(MailAccount.id))
+                            .filter(MailAccount.user_id == current_user.id, 
+                                    MailAccount.enabled == True)
+                            .scalar() or 0,
+        "total_accounts": db.query(func.count(MailAccount.id))
+                           .filter(MailAccount.user_id == current_user.id)
+                           .scalar() or 0,
+        "with_attachments": db.query(func.count(ArchivedEmail.id))
+                             .join(MailAccount)
+                             .filter(MailAccount.user_id == current_user.id,
+                                     ArchivedEmail.has_attachments == True)
+                             .scalar() or 0,
+        "last_sync": db.query(func.max(MailAccount.last_sync_at))
+                       .filter(MailAccount.user_id == current_user.id)
+                       .scalar()
+    }
+    
+    # Lista kont do filtrowania
+    accounts_list = db.query(MailAccount).filter(
+        MailAccount.user_id == current_user.id
+    ).all()
+    
+    return templates.TemplateResponse(
+        "emails.html",
+        {
+            "request": request,
+            "user": current_user,
+            "emails": emails,
+            "accounts": accounts_list,
+            "selected_account_id": account_id,
+            "selected_account_name": next(
+                (a.name for a in accounts_list if a.id == account_id), ""
+            ) if account_id else None,
+            "query": q,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": (total + per_page - 1) // per_page,
+            "stats": stats
+        }
+    )
+
+@app.get("/emails/{email_id}", response_class=HTMLResponse)
+def email_detail(
+    request: Request,
+    email_id: int,
+    db: Session = Depends(get_db)
+):
+    """Szczegóły maila"""
+    current_user = get_current_user(request, db)
+    if not current_user:
+        return redirect_login()
+    
+    email = db.query(ArchivedEmail).join(MailAccount).filter(
+        ArchivedEmail.id == email_id,
+        MailAccount.user_id == current_user.id
+    ).first()
+    
+    if not email:
+        return RedirectResponse("/emails", status_code=303)
+    
+    return templates.TemplateResponse(
+        "email_detail.html",
+        {
+            "request": request,
+            "user": current_user,
+            "email": email
+        }
+    )

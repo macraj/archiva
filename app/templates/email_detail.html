@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}Archiva · {{ email.subject|default('No subject')|truncate(30) }}{% endblock %}
+{% block subtitle %}{{ user.email }}{% endblock %}
+
+{% block nav %}
+  <a href="/emails">Back to list</a>
+  <a href="/accounts">Accounts</a>
+  {% if user.role == "admin" %}
+    <a href="/admin/users">Admin</a>
+  {% endif %}
+  <form action="/logout" method="post" style="margin:0;">
+    <button type="submit">Logout</button>
+  </form>
+{% endblock %}
+
+{% block content %}
+  <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+    <div>
+      <h1 style="margin-top:0; margin-bottom: 8px;">
+        {{ email.subject|default('(No subject)') }}
+      </h1>
+      <div class="muted" style="display: flex; gap: 16px; font-size: 0.9em;">
+        <span>From: <strong>{{ email.sender }}</strong></span>
+        <span>Date: <strong>{{ email.date.strftime('%Y-%m-%d %H:%M') }}</strong></span>
+        <span>Account: <strong>{{ email.account.name }}</strong></span>
+      </div>
+    </div>
+    
+    <div>
+      <a href="/emails" style="margin-right: 8px;">
+        <button>← Back</button>
+      </a>
+      {% if email.has_attachments %}
+        <button class="ok" onclick="document.getElementById('attachments').scrollIntoView()">
+          📎 Attachments
+        </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Załączniki -->
+  {% if email.has_attachments and email.attachments_json %}
+    {% set attachments = email.attachments_json|from_json %}
+    <div id="attachments" class="card" style="margin-bottom: 20px;">
+      <h3 style="margin-top: 0;">Attachments ({{ attachments|length }})</h3>
+      <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+        {% for att in attachments %}
+          <div style="border: 1px solid var(--border); border-radius: 8px; padding: 10px; min-width: 180px;">
+            <div style="font-weight: 500; margin-bottom: 6px;">{{ att.filename|truncate(25) }}</div>
+            <div class="muted" style="font-size: 0.85em;">
+              {{ att.content_type }} · {{ (att.size / 1024)|round(1) }} KB
+            </div>
+            <div style="margin-top: 8px;">
+              {% if att.saved %}
+                <a href="/api/attachments/{{ email.id }}/{{ loop.index0 }}" style="text-decoration: none;">
+                  <button style="padding: 4px 8px; font-size: 0.85em;">Download</button>
+                </a>
+              {% else %}
+                <span class="badge badge-unk" style="font-size: 0.85em;">Not saved</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  <!-- Treść maila -->
+  <div class="card" style="margin-bottom: 20px;">
+    <div style="display: flex; border-bottom: 1px solid var(--border); margin-bottom: 16px;">
+      <button id="tab-text" class="tab-active" style="
+        background: none; border: none; border-bottom: 2px solid var(--link); 
+        border-radius: 0; color: var(--link); padding: 8px 16px; cursor: pointer;
+      " onclick="showTab('text')">
+        Text
+      </button>
+      {% if email.body_html %}
+        <button id="tab-html" style="
+          background: none; border: none; border-bottom: 2px solid transparent;
+          border-radius: 0; color: var(--muted); padding: 8px 16px; cursor: pointer;
+        " onclick="showTab('html')">
+          HTML
+        </button>
+      {% endif %}
+      <button id="tab-headers" style="
+        background: none; border: none; border-bottom: 2px solid transparent;
+        border-radius: 0; color: var(--muted); padding: 8px 16px; cursor: pointer;
+      " onclick="showTab('headers')">
+        Headers
+      </button>
+    </div>
+
+    <div id="content-text" style="white-space: pre-wrap; font-family: monospace; line-height: 1.5;">
+      {{ email.body_text|default('No text content') }}
+    </div>
+    
+    {% if email.body_html %}
+      <div id="content-html" style="display: none;">
+        <iframe 
+          srcdoc="{{ email.body_html|escape }}" 
+          style="width: 100%; height: 500px; border: 1px solid var(--border); border-radius: 8px;"
+          sandbox="allow-same-origin"
+        ></iframe>
+        <div class="muted" style="margin-top: 8px; font-size: 0.9em;">
+          Note: External resources and scripts are blocked for security.
+        </div>
+      </div>
+    {% endif %}
+    
+    <div id="content-headers" style="display: none; white-space: pre-wrap; font-family: monospace; font-size: 0.9em;">
+      {{ email.raw_headers|default('No headers saved') }}
+    </div>
+  </div>
+
+  <!-- Szybkie akcje -->
+  <div style="display: flex; gap: 12px; margin-top: 20px;">
+    <a href="/emails/{{ email.id }}/download" style="text-decoration: none;">
+      <button>Download as .eml</button>
+    </a>
+    
+    <form method="post" action="/api/emails/{{ email.id }}/delete" onsubmit="return confirm('Delete this email?');">
+      <button class="danger" type="submit">Delete</button>
+    </form>
+  </div>
+{% endblock %}
+
+{% block head %}
+<script>
+function showTab(tab) {
+  // Ukryj wszystkie zakładki
+  document.querySelectorAll('[id^="content-"]').forEach(el => {
+    el.style.display = 'none';
+  });
+  document.querySelectorAll('[id^="tab-"]').forEach(el => {
+    el.classList.remove('tab-active');
+    el.style.borderBottomColor = 'transparent';
+    el.style.color = 'var(--muted)';
+  });
+  
+  // Pokaż wybraną zakładkę
+  document.getElementById('content-' + tab).style.display = 'block';
+  const tabBtn = document.getElementById('tab-' + tab);
+  tabBtn.classList.add('tab-active');
+  tabBtn.style.borderBottomColor = 'var(--link)';
+  tabBtn.style.color = 'var(--link)';
+}
+</script>
+<style>
+.tab-active {
+  border-bottom: 2px solid var(--link) !important;
+  color: var(--link) !important;
+}
+</style>
+{% endblock %}

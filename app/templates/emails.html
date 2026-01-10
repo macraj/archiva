@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+
+{% block title %}Archiva · Archived emails{% endblock %}
+{% block subtitle %}{{ user.email }}{% endblock %}
+
+{% block nav %}
+  <a href="/accounts">Mail accounts</a>
+  {% if user.role == "admin" %}
+    <a href="/admin/users">Admin</a>
+  {% endif %}
+  <a href="/account/change-password">Change password</a>
+  <form action="/logout" method="post" style="margin:0;">
+    <button type="submit">Logout</button>
+  </form>
+{% endblock %}
+
+{% block content %}
+  <h1 style="margin-top:0;">Archived emails</h1>
+
+  <!-- Statystyki -->
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 24px;">
+    <div class="card" style="padding: 12px;">
+      <div class="muted" style="font-size: 0.9em;">Total emails</div>
+      <div style="font-size: 2em; font-weight: bold;">{{ stats.total_emails }}</div>
+    </div>
+    
+    <div class="card" style="padding: 12px;">
+      <div class="muted" style="font-size: 0.9em;">Last sync</div>
+      <div style="font-size: 1.1em;">
+        {% if stats.last_sync %}
+          {{ stats.last_sync.strftime('%Y-%m-%d %H:%M') }}
+        {% else %}
+          Never
+        {% endif %}
+      </div>
+    </div>
+    
+    <div class="card" style="padding: 12px;">
+      <div class="muted" style="font-size: 0.9em;">Accounts active</div>
+      <div style="font-size: 2em; font-weight: bold;">
+        {{ stats.active_accounts }}/{{ stats.total_accounts }}
+      </div>
+    </div>
+    
+    <div class="card" style="padding: 12px;">
+      <div class="muted" style="font-size: 0.9em;">With attachments</div>
+      <div style="font-size: 2em; font-weight: bold;">{{ stats.with_attachments }}</div>
+    </div>
+  </div>
+
+  <!-- Akcje -->
+  <div style="margin-bottom: 20px; display: flex; gap: 12px; align-items: center;">
+    <!-- Formularz filtrowania -->
+    <form method="get" action="/emails" style="display: flex; gap: 12px; align-items: center; flex-grow: 1;">
+      <label style="display: flex; align-items: center; gap: 6px;">
+        Account:
+        <select name="account_id" style="padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.06); color: var(--text);">
+          <option value="">All accounts</option>
+          {% for acc in accounts %}
+            <option value="{{ acc.id }}" {% if selected_account_id == acc.id %}selected{% endif %}>
+              {{ acc.name }} ({{ acc.emails_count }})
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      
+      <label style="display: flex; align-items: center; gap: 6px;">
+        Search:
+        <input type="text" name="q" placeholder="Search in subject/sender..." value="{{ query }}" style="padding: 6px 10px; width: 200px;" />
+      </label>
+      
+      <button type="submit">Filter</button>
+    </form>
+
+    <!-- Przycisk synchronizacji -->
+    <form method="post" action="/api/sync/all" style="margin: 0;">
+      <button type="submit" class="ok" {% if not stats.active_accounts %}disabled{% endif %}>
+        Sync now
+      </button>
+    </form>
+  </div>
+
+  <!-- Lista maili -->
+  {% if emails and emails|length > 0 %}
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 180px;">Date</th>
+          <th style="width: 220px;">From</th>
+          <th>Subject</th>
+          <th style="width: 120px;">Account</th>
+          <th style="width: 80px;">Attach</th>
+          <th style="width: 80px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for email in emails %}
+        <tr>
+          <td>
+            <div>{{ email.date.strftime('%Y-%m-%d') }}</div>
+            <div class="muted" style="font-size: 0.85em;">{{ email.date.strftime('%H:%M') }}</div>
+          </td>
+          
+          <td>
+            {% if '@' in email.sender %}
+              {% set parts = email.sender.split('<') %}
+              {% if parts|length > 1 %}
+                <div title="{{ parts[1]|replace('>', '') }}">
+                  {{ parts[1]|replace('>', '')|truncate(25) }}
+                </div>
+                <div class="muted" style="font-size: 0.85em;">
+                  {{ parts[0]|trim|truncate(20) }}
+                </div>
+              {% else %}
+                <div title="{{ email.sender }}">
+                  {{ email.sender|truncate(30) }}
+                </div>
+              {% endif %}
+            {% else %}
+              {{ email.sender|truncate(30) }}
+            {% endif %}
+          </td>
+          
+          <td>
+            <div style="font-weight: 500; margin-bottom: 4px;">
+              <a href="/emails/{{ email.id }}" style="color: var(--text); text-decoration: none;">
+                {{ email.subject|default('(No subject)')|truncate(70) }}
+              </a>
+            </div>
+            {% if email.body_text %}
+              <div class="muted" style="font-size: 0.9em; line-height: 1.3;">
+                {{ email.body_text|truncate(100) }}
+              </div>
+            {% endif %}
+          </td>
+          
+          <td>
+            <div>{{ email.account.name }}</div>
+            <div class="muted" style="font-size: 0.85em;">
+              {% if email.account.last_sync_at %}
+                Synced {{ email.account.last_sync_at.strftime('%m-%d') }}
+              {% endif %}
+            </div>
+          </td>
+          
+          <td>
+            {% if email.has_attachments %}
+              <span class="badge badge-ok">✓</span>
+            {% else %}
+              <span class="muted">–</span>
+            {% endif %}
+          </td>
+          
+          <td class="actions">
+            <a href="/emails/{{ email.id }}">
+              <button style="padding: 4px 8px; font-size: 0.9em;">View</button>
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <!-- Paginacja -->
+    {% if total_pages > 1 %}
+      <div style="margin-top: 20px; display: flex; justify-content: center; gap: 8px;">
+        {% if page > 1 %}
+          <a href="?page={{ page-1 }}{% if selected_account_id %}&account_id={{ selected_account_id }}{% endif %}{% if query %}&q={{ query }}{% endif %}">
+            <button>‹ Prev</button>
+          </a>
+        {% endif %}
+        
+        {% for p in range(1, total_pages + 1) %}
+          {% if p >= page-2 and p <= page+2 %}
+            <a href="?page={{ p }}{% if selected_account_id %}&account_id={{ selected_account_id }}{% endif %}{% if query %}&q={{ query }}{% endif %}">
+              <button {% if p == page %}class="ok"{% endif %}>{{ p }}</button>
+            </a>
+          {% endif %}
+        {% endfor %}
+        
+        {% if page < total_pages %}
+          <a href="?page={{ page+1 }}{% if selected_account_id %}&account_id={{ selected_account_id }}{% endif %}{% if query %}&q={{ query }}{% endif %}">
+            <button>Next ›</button>
+          </a>
+        {% endif %}
+      </div>
+    {% endif %}
+    
+    <p class="muted" style="margin-top: 12px;">
+      Showing {{ emails|length }} of {{ stats.total_emails }} emails
+      {% if selected_account_id %}
+        for account "{{ selected_account_name }}"
+      {% endif %}
+    </p>
+    
+  {% else %}
+    <div style="text-align: center; padding: 40px 0;">
+      <div style="font-size: 2em; margin-bottom: 12px;">📭</div>
+      <h3>No emails archived yet</h3>
+      <p class="muted">
+        {% if stats.active_accounts > 0 %}
+          Your accounts are ready. Click "Sync now" to start archiving.
+        {% else %}
+          Enable at least one mail account first.
+        {% endif %}
+      </p>
+      {% if stats.active_accounts == 0 %}
+        <a href="/accounts" style="margin-top: 12px; display: inline-block;">
+          <button class="ok">Go to accounts</button>
+        </a>
+      {% endif %}
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block head %}
+<script>
+// Auto-refresh po synchronizacji
+document.addEventListener('DOMContentLoaded', function() {
+  const syncForm = document.querySelector('form[action="/api/sync/all"]');
+  if (syncForm) {
+    syncForm.addEventListener('submit', function(e) {
+      const btn = this.querySelector('button');
+      btn.disabled = true;
+      btn.textContent = 'Syncing...';
+      
+      fetch('/api/sync/all', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+          setTimeout(() => {
+            location.reload();
+          }, 2000);
+        })
+        .catch(error => {
+          btn.disabled = false;
+          btn.textContent = 'Sync now';
+          alert('Sync failed: ' + error);
+        });
+      
+      e.preventDefault();
+    });
+  }
+});
+</script>
+{% endblock %}

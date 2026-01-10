@@ -106,7 +106,28 @@
           <div style="font-weight:800;"><a href="/">Archiva</a></div>
           <div class="muted">{% block subtitle %}{% endblock %}</div>
         </div>
-        <nav>{% block nav %}{% endblock %}</nav>
+        <nav>
+          {% block nav %}
+            {# Domyślna nawigacja dla zalogowanych użytkowników #}
+            {% if user and user.is_authenticated %}
+              <a href="/accounts">Mail accounts</a>
+              <a href="/emails">Archived emails</a>
+              {% if user.role == "admin" %}
+                <a href="/admin/users">Admin</a>
+              {% endif %}
+              <a href="/account/change-password">Change password</a>
+              <form action="/logout" method="post" style="margin:0;">
+                <button type="submit">Logout</button>
+              </form>
+            {% else %}
+              {# Domyślna nawigacja dla niezalogowanych #}
+              {% if ALLOW_SIGNUP %}
+                <a href="/signup">Signup</a>
+              {% endif %}
+              <a href="/login">Login</a>
+            {% endif %}
+          {% endblock %}
+        </nav>
       </header>
 
       {% if error %}
@@ -118,4 +139,3 @@
   </div>
 </body>
 </html>
-

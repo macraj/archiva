@@ -1,4 +1,3 @@
-from passlib.context import CryptContext
 from cryptography.fernet import Fernet
 from itsdangerous import URLSafeSerializer
 
@@ -29,4 +28,5 @@ def unsign_session(value: str) -> int | None:
         return int(data["user_id"])
     except Exception:
         return None
+
 
