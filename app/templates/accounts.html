@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Archiva · Mail accounts{% endblock %}
+{% block subtitle %}{{ user.email }}{% endblock %}
+
+{% block nav %}
+  {% if user.role == "admin" %}
+    <a href="/admin/users">Admin</a>
+  {% endif %}
+  <a href="/account/change-password">Change password</a>
+  <form action="/logout" method="post" style="margin:0;">
+    <button type="submit">Logout</button>
+  </form>
+{% endblock %}
+
+{% block content %}
+  <h1>Mail accounts</h1>
+
+  <h2 style="margin-top:16px;">Add mail account</h2>
+  <p class="muted" style="max-width: 80ch;">
+    Konto zapisuje się od razu jako disabled. Test wykona się dopiero przy kliknięciu Enable.
+  </p>
+
+  <form method="post" action="/accounts/add">
+    <label>
+      Name
+      <input name="name" placeholder="Yahoo" required />
+    </label>
+
+    <label>
+      IMAP host
+      <input name="imap_host" placeholder="imap.mail.yahoo.com" required />
+    </label>
+
+    <label>
+      IMAP port
+      <input name="imap_port" type="number" value="993" required />
+    </label>
+
+    <label>
+      IMAP user/login
+      <input name="imap_user" placeholder="user@example.com" required />
+    </label>
+
+    <label>
+      IMAP app password
+      <input name="imap_password" type="password" placeholder="App password" required />
+    </label>
+
+    <button type="submit" style="margin-top:14px;">Add (disabled)</button>
+  </form>
+
+  <h2 style="margin-top:24px;">Your accounts</h2>
+
+  {% if accounts and accounts|length > 0 %}
+    <table>
+      <thead>
+        <tr>
+          <th style="width:70px;">ID</th>
+          <th style="width:170px;">Name</th>
+          <th>IMAP</th>
+          <th style="width:100px;">Enabled</th>
+          <th style="width:170px;">Test</th>
+          <th style="width:260px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in accounts %}
+        <tr>
+          <td>{{ a.id }}</td>
+          <td>{{ a.name }}</td>
+
+          <td>
+            {% set u = a.imap_user or "" %}
+            {% if "@" in u %}
+              {% set parts = u.split("@", 1) %}
+              <div><strong>{{ parts[0][:2] }}***@{{ parts[1] }}</strong></div>
+            {% else %}
+              <div><strong>{{ u[:2] }}***</strong></div>
+            {% endif %}
+            <div class="muted">{{ a.imap_host }}:{{ a.imap_port }}</div>
+          </td>
+
+          <td>
+            {% if a.enabled %}
+              <span class="badge badge-ok">yes</span>
+            {% else %}
+              <span class="badge badge-unk">no</span>
+            {% endif %}
+          </td>
+
+          <td>
+            {% if a.last_test_ok is none %}
+              <span class="badge badge-unk">unknown</span>
+            {% elif a.last_test_ok %}
+              <span class="badge badge-ok">ok</span>
+            {% else %}
+              <span class="badge badge-fail">fail</span>
+              {% if a.last_test_error %}
+                <div class="muted" style="margin-top:6px;">{{ a.last_test_error }}</div>
+              {% endif %}
+            {% endif %}
+          </td>
+
+          <td class="actions">
+            <form method="post" action="/accounts/toggle">
+              <input type="hidden" name="account_id" value="{{ a.id }}" />
+              {% if a.enabled %}
+                <button class="warn" type="submit">Disable</button>
+              {% else %}
+                <button class="ok" type="submit">Enable (test)</button>
+              {% endif %}
+            </form>
+
+            <form method="post" action="/accounts/delete" onsubmit="return confirm('Delete account {{ a.name }}?');">
+              <input type="hidden" name="account_id" value="{{ a.id }}" />
+              <button class="danger" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No accounts yet.</p>
+  {% endif %}
+{% endblock %}
+

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Archiva · Admin · Users{% endblock %}
+{% block subtitle %}Logged in as: {{ user.email }} ({{ user.role }}){% endblock %}
+
+{% block nav %}
+  <a href="/accounts">Mail accounts</a>
+  <a href="/signup">Create user</a>
+  <form action="/logout" method="post" style="margin:0;">
+    <button type="submit">Logout</button>
+  </form>
+{% endblock %}
+
+{% block content %}
+  <h1 style="margin-top:0;">Users</h1>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:60px;">ID</th>
+        <th>Email</th>
+        <th style="width:90px;">Role</th>
+        <th style="width:90px;">Active</th>
+        <th style="width:190px;">Must change password</th>
+        <th style="width:260px;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>{{ u.id }}</td>
+        <td>{{ u.email }}</td>
+        <td>{{ u.role }}</td>
+        <td>{{ "yes" if u.is_active else "no" }}</td>
+        <td>{{ "yes" if u.must_change_password else "no" }}</td>
+        <td class="actions">
+          <form action="/admin/users/{{ u.id }}/force-password-change" method="post">
+            <button class="warn" type="submit">Force password change</button>
+          </form>
+
+          {% if u.id != user.id %}
+          <form action="/admin/users/{{ u.id }}/delete" method="post"
+                onsubmit="return confirm('Delete user {{ u.email }}?');">
+            <button class="danger" type="submit">Delete</button>
+          </form>
+          {% else %}
+          <span class="muted">This is you</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p class="muted" style="margin-top:16px;">
+    “Force password change” sets a flag; user will be redirected to change password after login.
+  </p>
+{% endblock %}
+

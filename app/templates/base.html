@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{% block title %}Archiva{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #121a2b;
+      --muted: #9aa7bd;
+      --text: #e7eefc;
+      --border: rgba(255,255,255,0.10);
+      --link: #8ab4ff;
+      --danger: #ff5c77;
+      --warn: #ffd166;
+      --ok: #2ee59d;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      background: radial-gradient(1200px 800px at 20% 0%, #1a2a4a 0%, var(--bg) 55%);
+      color: var(--text);
+    }
+
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 22px 12px; }
+    .card {
+      background: rgba(18, 26, 43, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 16px 18px;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+    }
+
+    header { display:flex; justify-content: space-between; align-items:center; gap: 12px; margin-bottom: 14px; }
+    nav { display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
+
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    h1,h2,h3 { margin: 0 0 10px; }
+
+    .muted { color: var(--muted); font-size: 0.95em; }
+
+    .error {
+      background: rgba(255, 92, 119, 0.10);
+      border: 1px solid rgba(255, 92, 119, 0.35);
+      padding: 10px;
+      border-radius: 10px;
+      margin: 12px 0;
+    }
+
+    .note {
+      background: rgba(255, 209, 102, 0.10);
+      border: 1px solid rgba(255, 209, 102, 0.35);
+      padding: 10px;
+      border-radius: 10px;
+      margin: 12px 0;
+      color: var(--text);
+    }
+
+    label { display:block; margin-top: 12px; }
+    input {
+      width: 100%;
+      padding: 10px;
+      margin-top: 6px;
+      box-sizing: border-box;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      outline: none;
+    }
+    input::placeholder { color: rgba(231,238,252,0.55); }
+
+    button {
+      padding: 8px 12px;
+      cursor: pointer;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+    }
+    .danger { border-color: rgba(255,92,119,0.35); background: rgba(255,92,119,0.12); }
+    .warn { border-color: rgba(255,209,102,0.40); background: rgba(255,209,102,0.12); color: var(--text); }
+    .ok { border-color: rgba(46,229,157,0.40); background: rgba(46,229,157,0.12); }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid var(--border); padding: 10px; vertical-align: top; }
+    th { background: rgba(255,255,255,0.04); text-align: left; }
+
+    .actions form { display:inline; margin-right: 6px; }
+    .badge { display:inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.85em; border: 1px solid var(--border); }
+    .badge-ok { border-color: rgba(46,229,157,0.40); color: var(--ok); }
+    .badge-fail { border-color: rgba(255,92,119,0.40); color: var(--danger); }
+    .badge-unk { border-color: rgba(255,255,255,0.15); color: var(--muted); }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <header>
+        <div>
+          <div style="font-weight:800;"><a href="/">Archiva</a></div>
+          <div class="muted">{% block subtitle %}{% endblock %}</div>
+        </div>
+        <nav>{% block nav %}{% endblock %}</nav>
+      </header>
+
+      {% if error %}
+        <div class="error">{{ error }}</div>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+</body>
+</html>
+
