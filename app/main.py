@@ -219,7 +219,12 @@ def login_post(
             status_code=400,
         )
 
-    next_url = "/account/change-password" if user.must_change_password else "/accounts"
+        # next_url = "/account/change-password" if user.must_change_password else "/accounts"
+    next_url = (
+        "/account/change-password"
+        if user.must_change_password
+        else ("/admin/users" if user.role == "admin" else "/accounts")
+    )
 
     resp = RedirectResponse(next_url, status_code=303)
     resp.set_cookie(
