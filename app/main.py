@@ -722,7 +722,7 @@ async def api_sync_account(
         db_sync = LocalSession()
         try:
             archiver = EmailArchiver(account_id, db_sync)
-            archiver.fetch_emails(since_days=30)
+            archiver.fetch_emails(batch_size=500)
         finally:
             db_sync.close()
     
